@@ -6,7 +6,10 @@
 #include <sys/ipc.h>
 #include <sys/msg.h>
 #include <unistd.h>
-#include <thread>   // Для многопоточности
+#include <thread>
+#include <chrono>
+#include <mutex>
+#include <fstream>  // Для записи в файл
 
 struct msg_buffer {
     long msg_type;
@@ -17,16 +20,40 @@ struct msg_buffer {
 class Server {
 private:
     int msgid;
+    std::mutex log_mutex;  // Мьютекс для синхронизации доступа к файлу
 
-    // Функция для обработки одного сообщения в отдельном потоке
+    // Функция для записи логов в файл
+    void log_to_file(const std::string& timestamp, const std::string& original_msg, const std::chrono::nanoseconds& duration) {
+        std::lock_guard<std::mutex> lock(log_mutex);  // Автоматически блокирует и разблокирует мьютекс
+
+        std::ofstream log_file("server_log.txt", std::ios_base::app);
+        if (log_file.is_open()) {
+            log_file << "Timestamp: " << timestamp << ", ";
+            log_file << "Original Message: " << original_msg << ", ";
+            log_file << "Processing Time: " << duration.count() << " ns\n";
+        } else {
+            std::cerr << "Failed to open log file" << std::endl;
+        }
+    }
+
+    // Функция для обработки одного сообщения
     void process_message(msg_buffer message) {
+        using namespace std::chrono;
+
+        // Получаем время получения сообщения
+        auto start_time = high_resolution_clock::now();
+        time_t current_time = system_clock::to_time_t(system_clock::now());
+        std::string timestamp = ctime(&current_time);
+        timestamp.pop_back(); // Убираем лишний символ новой строки
+
         pid_t client_pid = message.msg_PID;
         std::string msg_text(message.msg_text);
 
         std::cout << "Message received: " << msg_text;
         std::cout << " From PID: " << client_pid << std::endl;
 
-        std::reverse(msg_text.begin(), msg_text.end());  // Разворачиваем текст
+        // Разворачиваем строку
+        std::reverse(msg_text.begin(), msg_text.end());
         std::cout << "Message reversed: " << msg_text << std::endl << std::endl;
 
         // Отправляем ответ клиенту
@@ -39,6 +66,14 @@ private:
         if (msgsnd(msgid, &response, sizeof(msg_buffer), 0) == -1) {
             std::cerr << "Failed to send response to client" << std::endl;
         }
+
+        // Получаем время окончания обработки
+        auto end_time = high_resolution_clock::now();
+        auto duration = duration_cast<nanoseconds>(end_time - start_time);
+
+        // Логируем информацию о сообщении в файл
+        std::reverse(msg_text.begin(), msg_text.end());
+        log_to_file(timestamp, msg_text, duration);
     }
 
 public:
