@@ -9,3 +9,6 @@ add_executable(client src/client.cpp)
 add_executable(server src/server.cpp)
 
 include_directories(${CMAKE_SOURCE_DIR}/src)
+
+target_link_libraries(client pthread)
+target_link_libraries(server pthread)
