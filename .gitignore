@@ -11,3 +11,5 @@ Makefile
 cmake_install.cmake
 *.log
 .vscode/
+.vscode/settings.json
+src/server_log.txt
