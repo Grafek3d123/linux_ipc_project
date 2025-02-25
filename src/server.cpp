@@ -1,58 +1,75 @@
+// server.cpp
 #include <iostream>
-#include <fstream>
-#include <unistd.h>
+#include <string>
+#include <algorithm>
 #include <cstring>
-#include <fcntl.h>
 #include <sys/types.h>
-#include <sys/stat.h>
-#include <signal.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
+#include <unistd.h>
 
-#define FIFO_PATH "/tmp/ipc_fifo"
+struct msg_buffer {
+    long msg_type;
+    char msg_text[11];  // 10 символов + 1 для '\0'
+    pid_t msg_PID;
 
-// Функция для удаления FIFO при завершении программы
-void cleanup(int sig) {
-    if (unlink(FIFO_PATH) == -1) {
-        std::cerr << "Ошибка при удалении FIFO: " << strerror(errno) << std::endl;
-    } else {
-        std::cout << "FIFO файл удален.\n";
+};
+
+class Server {
+private:
+    int msgid;
+
+public:
+    Server() {
+        key_t key = ftok("progfile", 65);
+        msgid = msgget(key, 0666 | IPC_CREAT);
+        if (msgid == -1) {
+            throw std::runtime_error("Failed to create message queue");
+        } else {
+            std::cout << "msgidServer = " << msgid << std::endl;
+        }
     }
-    exit(0);
-}
+
+    ~Server() {
+        msgctl(msgid, IPC_RMID, nullptr);
+    }
+
+    void run() {
+        while (true) {
+            msg_buffer message;
+            if (msgrcv(msgid, &message, sizeof(msg_buffer), 1, 0) == -1) {
+                perror("Failed to receive message");
+                continue;
+            }
+
+            pid_t client_pid = message.msg_PID;
+            std::string msg_text(message.msg_text);
+
+            std::cout << "Message received: " << msg_text;
+            std::cout << " From PID: " << client_pid << std::endl;
+            std::reverse(msg_text.begin(), msg_text.end());
+            std::cout << "Message reversed: " << msg_text << std::endl << std::endl;
+            
+            msg_buffer response;
+            response.msg_type = 2; // answer type
+            strncpy(response.msg_text, msg_text.c_str(), 10);
+            response.msg_text[10] = '\0';
+            response.msg_PID = client_pid;
+
+            if (msgsnd(msgid, &response, sizeof(msg_buffer), 0) == -1) {
+                std::cerr << "Failed to send response to client" << std::endl;
+            }
+        }
+    }
+};
 
 int main() {
-    // Установка обработчика сигнала SIGINT (Ctrl+C)
-    signal(SIGINT, cleanup);
-
-    // Создание FIFO
-    if (mkfifo(FIFO_PATH, 0666) == -1) {
-        std::cerr << "Ошибка создания FIFO\n";
+    try {
+        Server server;
+        server.run();
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
-
-    std::cout << "Сервер запущен, ждет клиентов...\n";
-
-    // Открытие FIFO для записи
-    int fifo_fd = open(FIFO_PATH, O_WRONLY);
-    if (fifo_fd == -1) {
-        std::cerr << "Не удалось открыть FIFO для записи\n";
-        return 1;
-    }
-
-    std::string message = "Hello from server!";
-    if (write(fifo_fd, message.c_str(), message.size() + 1) == -1) {
-        std::cerr << "Ошибка при отправке сообщения\n";
-        close(fifo_fd);
-        return 1;
-    }
-
-    std::cout << "Сообщение отправлено\n";
-
-    close(fifo_fd);
-
-    // Программа будет ждать SIGINT (Ctrl+C) для удаления FIFO
-    while (true) {
-        pause();  // Ожидаем сигналы
-    }
-
     return 0;
 }

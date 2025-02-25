@@ -1,0 +1,13 @@
+# Игнорируем файлы, генерируемые компилятором и сборщиком
+/build/
+*.o
+*.a
+*.so
+*.out
+*.dSYM
+CMakeFiles/
+CMakeCache.txt
+Makefile
+cmake_install.cmake
+*.log
+.vscode/
